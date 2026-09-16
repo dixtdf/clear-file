@@ -1,0 +1,8 @@
+.git
+.gitignore
+.cowork-temp
+web/node_modules
+web/dist
+file-cleaner
+*.log
+*.exe

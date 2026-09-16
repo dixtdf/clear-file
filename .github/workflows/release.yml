@@ -1,0 +1,208 @@
+name: Release
+
+# 手动触发发布：
+#   1. 用输入的分支（默认 main）创建并推送 vX.Y.Z tag
+#   2. 构建多架构 Docker 镜像并推送到 GitHub Container Registry (ghcr.io)
+#   3. 交叉编译各平台二进制，连同校验和一起上传到 GitHub Release
+#
+# 用之前请确认：仓库已推送到 GitHub，且 Settings → Actions → General →
+# Workflow permissions 允许写（镜像推送用的是内置 GITHUB_TOKEN）。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（不带 v 前缀，例如 0.1.0）'
+        required: true
+        type: string
+      branch:
+        description: '打 tag 使用的分支'
+        required: true
+        default: main
+        type: string
+      latest:
+        description: '同时更新 latest 镜像标签'
+        required: true
+        default: true
+        type: boolean
+
+# 同一版本号不允许并发跑两遍
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: 校验版本并打 tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - name: 校验版本号与 tag
+        id: check
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${VERSION_INPUT// /}"
+          version="${version#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::版本号不合法：'${VERSION_INPUT}'，应形如 0.1.0"
+            exit 1
+          fi
+          tag="v${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::tag ${tag} 已存在，换个版本号再试"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "将发布 ${tag}，来源分支 ${{ inputs.branch }}"
+
+      - name: 创建并推送 tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.check.outputs.tag }}" -m "Release ${{ steps.check.outputs.tag }}"
+          git push origin "${{ steps.check.outputs.tag }}"
+
+  docker:
+    name: 推送 Docker 镜像到 ghcr.io
+    needs: tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - name: 计算镜像名（GHCR 要求全小写）
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成镜像标签与 labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.tag.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.tag.outputs.tag }}
+            type=raw,value=latest,enable=${{ inputs.latest }}
+          labels: |
+            org.opencontainers.image.title=file-cleaner
+            org.opencontainers.image.version=${{ needs.tag.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: 构建并推送（linux/amd64, linux/arm64）
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.tag.outputs.version }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  binaries:
+    name: 编译二进制并上传到 Release
+    needs: tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 构建前端（产物会被 go:embed 打进二进制）
+        working-directory: web
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm run build
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: 交叉编译并打包
+        env:
+          VERSION: ${{ needs.tag.outputs.version }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          ldflags="-s -w -X file-cleaner/internal/version.Version=${VERSION} -X file-cleaner/internal/version.Commit=${COMMIT:0:7}"
+          for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64; do
+            goos="${target%%/*}"
+            goarch="${target##*/}"
+            name="file-cleaner_${VERSION}_${goos}_${goarch}"
+            ext=""
+            if [ "$goos" = "windows" ]; then ext=".exe"; fi
+            out="dist/release/${name}/file-cleaner${ext}"
+            mkdir -p "$(dirname "$out")"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "$ldflags" -o "$out" ./cmd/server
+            if [ "$goos" = "windows" ]; then
+              (cd dist/release && zip -qr "${name}.zip" "$name")
+            else
+              (cd dist/release && tar -czf "${name}.tar.gz" "$name")
+            fi
+            rm -rf "dist/release/${name}"
+          done
+          (cd dist/release && sha256sum ./*.tar.gz ./*.zip > checksums.txt)
+          ls -lh dist/release
+
+      - name: 创建 GitHub Release 并上传产物
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.tag.outputs.tag }}
+          name: ${{ needs.tag.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/release/*.tar.gz
+            dist/release/*.zip
+            dist/release/checksums.txt

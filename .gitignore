@@ -1,0 +1,14 @@
+# dependencies / build output
+web/node_modules/
+web/dist/
+file-cleaner
+*.exe
+
+# 本地发布的打包产物（.github/workflows/release.yml 会写 dist/release）
+dist/
+
+# local scratch
+.cowork-temp/
+*.log
+
+.idea

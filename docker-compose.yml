@@ -1,0 +1,28 @@
+services:
+  file-cleaner:
+    # 直接用 GitHub Actions 发布的镜像（GHCR），不再本地构建。
+    # 换仓库或固定版本：改这一行，或在同目录 .env 里写 FILE_CLEANER_IMAGE=ghcr.io/<owner>/<repo>:0.1.0
+    # 包是私有时先登录：docker login ghcr.io -u <github-user> -p <PAT>
+    image: ${FILE_CLEANER_IMAGE:-ghcr.io/dixtdf/clear-file:latest}
+    container_name: file-cleaner
+    privileged: true
+    ports:
+      - "6888:6888"
+    volumes:
+      # Only /mnt is mounted: the program can never reach the rest of the host.
+      - /mnt:/mnt
+    environment:
+      FILE_CLEANER_ROOT: /mnt
+      FILE_CLEANER_ADDR: ":6888"
+      # Move deleted entries into /mnt/.file-cleaner-trash instead of unlinking.
+      # Default is a direct delete (recoverable trash is opt-in).
+      FILE_CLEANER_TRASH: "false"
+      # Upper bound for in-memory scan results.
+      FILE_CLEANER_MAX_RESULTS: "500000"
+      TZ: Asia/Shanghai
+    restart: always
+    # Scans read a lot of data; give the container room but never let it
+    # starve the host.
+#    mem_limit: 2g
+    # Uncomment when the mount is a network share you want to protect:
+    # read_only: false
