@@ -25,7 +25,7 @@ type Config struct {
 func Load() Config {
 	c := Config{
 		Addr:           env("FILE_CLEANER_ADDR", ":6888"),
-		Root:           env("FILE_CLEANER_ROOT", "/mnt"),
+		Root:           env("FILE_CLEANER_ROOT", string(filepath.Separator)),
 		TrashMode:      envBool("FILE_CLEANER_TRASH", false),
 		MaxResultItems: envInt("FILE_CLEANER_MAX_RESULTS", 500000),
 	}

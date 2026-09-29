@@ -32,7 +32,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 func fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, filesystem.ErrOutsideRoot):
-		writeError(w, http.StatusForbidden, "路径超出允许范围 (/mnt)")
+		writeError(w, http.StatusForbidden, "路径超出允许访问的根目录")
 	default:
 		writeError(w, http.StatusBadRequest, err.Error())
 	}

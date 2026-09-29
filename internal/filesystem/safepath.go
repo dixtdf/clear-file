@@ -21,7 +21,7 @@ var ErrOutsideRoot = errors.New("path is outside the allowed root")
 // symlink-free prefix used for all containment checks.
 func CleanRoot(root string) string {
 	if root == "" {
-		root = "/mnt"
+		root = string(filepath.Separator)
 	}
 	if v, ok := rootCache.Load(root); ok {
 		return v.(string)

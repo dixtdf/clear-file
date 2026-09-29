@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from './api/client'
 import { useTaskPoller } from './composables/useTask'
@@ -10,6 +10,7 @@ const route = useRoute()
 const router = useRouter()
 const { tasks, start } = useTaskPoller(2500)
 const { items: toasts } = useToasts()
+const allowedRoot = ref('')
 
 const nav = [
   { name: 'dashboard', path: '/', label: '首页', icon: '🏠' },
@@ -30,7 +31,10 @@ async function cancelTask(id) {
   }
 }
 
-onMounted(() => start())
+onMounted(async () => {
+  start()
+  try { allowedRoot.value = (await api.systemInfo()).root } catch { /* page requests show their own errors */ }
+})
 </script>
 
 <template>
@@ -50,7 +54,7 @@ onMounted(() => start())
         <span>{{ item.icon }}</span>
         <span>{{ item.label }}</span>
       </div>
-      <div class="sidebar-foot">仅可访问 /mnt 挂载目录</div>
+      <div v-if="allowedRoot" class="sidebar-foot">可访问根目录：{{ allowedRoot }}</div>
     </aside>
 
     <div class="main">

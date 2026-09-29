@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import DirPicker from '../components/DirPicker.vue'
@@ -22,7 +22,7 @@ const GROUP_SCAN_LIMIT = 20000
 /** How many files of one group are rendered before the list collapses. */
 const FILE_RENDER_LIMIT = 200
 
-const dirs = ref(['/mnt'])
+const dirs = ref([])
 const mode = ref('fast')
 const minValue = ref('1')
 const minUnit = ref('KB')
@@ -42,7 +42,14 @@ const selection = reactive({})
 const selectedCount = ref(0)
 const selectedSize = ref(0)
 const expanded = reactive({}) // groupId -> true (show every file of that group)
-const preferredDir = ref('/mnt/movie')
+const preferredDir = ref('')
+
+onMounted(async () => {
+  try {
+    const root = (await api.systemInfo()).root
+    if (!dirs.value.length) dirs.value = [root]
+  } catch { /* scan API reports unavailable server */ }
+})
 const sweeping = ref(false)
 
 const dialog = reactive({ open: false, busy: false, preview: null, paths: [], progress: '' })

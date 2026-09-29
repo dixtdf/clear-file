@@ -8,7 +8,7 @@ import { useTaskStream } from '../composables/useTask'
 import { toast } from '../composables/useToast'
 import { formatBytes, formatNumber } from '../utils/format'
 
-const scanPath = ref('/mnt')
+const scanPath = ref('')
 const pickerOpen = ref(false)
 
 const { task, watch: watchTask } = useTaskStream()
@@ -117,7 +117,12 @@ const maxChildSize = computed(() => {
   return list.reduce((m, c) => Math.max(m, c.size), 0) || 1
 })
 
-onMounted(() => {})
+onMounted(async () => {
+  try {
+    const root = (await api.systemInfo()).root
+    if (!scanPath.value) scanPath.value = root
+  } catch { /* scan API reports unavailable server */ }
+})
 </script>
 
 <template>

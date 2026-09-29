@@ -9,7 +9,7 @@ import { formatBytes, formatNumber, formatTime, toBytes, dateToMs } from '../uti
 const loading = ref(false)
 const error = ref('')
 
-const path = ref('/mnt')
+const path = ref('')
 const entries = ref([])
 const total = ref(0)
 const page = ref(1)

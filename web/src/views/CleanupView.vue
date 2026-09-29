@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import DirPicker from '../components/DirPicker.vue'
@@ -16,12 +16,19 @@ const tabs = [
 ]
 
 const mode = ref('empty_file')
-const scanRoot = ref('/mnt')
+const scanRoot = ref('')
 const recursive = ref(true)
 const includeEmpty = ref(true)
 const smallValue = ref('500')
 const smallUnit = ref('KB')
 const pickerOpen = ref(false)
+
+onMounted(async () => {
+  try {
+    const root = (await api.systemInfo()).root
+    if (!scanRoot.value) scanRoot.value = root
+  } catch { /* scan API reports unavailable server */ }
+})
 
 const { task, watch: watchTask } = useTaskStream()
 const results = ref([])

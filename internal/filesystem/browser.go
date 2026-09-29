@@ -35,6 +35,7 @@ type Summary struct {
 // ListOptions describes one directory listing request.
 type ListOptions struct {
 	Path      string
+	DirsOnly  bool
 	Page      int
 	PageSize  int
 	Sort      string // name | size | mtime | type
@@ -134,7 +135,7 @@ func List(root string, opt ListOptions) (*ListResult, error) {
 		}
 	}
 	for _, e := range files {
-		if match(e, opt) {
+		if !opt.DirsOnly && match(e, opt) {
 			all = append(all, e)
 		}
 	}

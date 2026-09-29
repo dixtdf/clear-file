@@ -8,13 +8,15 @@ services:
     privileged: true
     ports:
       - "6888:6888"
-    volumes:
-      # Only /mnt is mounted: the program can never reach the rest of the host.
-      - /mnt:/mnt
+    # Mount only the host directories you want to manage. Mounts are optional.
+    # volumes:
+    #   - /srv/media:/media
+    #   - /home/user/downloads:/downloads
     environment:
-      FILE_CLEANER_ROOT: /mnt
+      # Optional: restrict access to one path inside the container (default: /).
+      FILE_CLEANER_ROOT: ${FILE_CLEANER_ROOT:-/}
       FILE_CLEANER_ADDR: ":6888"
-      # Move deleted entries into /mnt/.file-cleaner-trash instead of unlinking.
+      # Move deleted entries into <root>/.file-cleaner-trash instead of unlinking.
       # Default is a direct delete (recoverable trash is opt-in).
       FILE_CLEANER_TRASH: "false"
       # Upper bound for in-memory scan results.
@@ -24,5 +26,5 @@ services:
     # Scans read a lot of data; give the container room but never let it
     # starve the host.
 #    mem_limit: 2g
-    # Uncomment when the mount is a network share you want to protect:
+    # Uncomment when a mount is a network share you want to protect:
     # read_only: false

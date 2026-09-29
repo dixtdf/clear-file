@@ -48,9 +48,9 @@ onMounted(async () => {
 
     <div class="grid cols-4">
       <div class="card stat">
-        <div class="label">挂载目录</div>
+        <div class="label">可访问根目录</div>
         <div class="value mono" style="font-size: 17px">{{ info ? info.root : '-' }}</div>
-        <div class="sub">仅此目录可访问</div>
+        <div class="sub">可访问此目录及其子目录</div>
       </div>
       <div class="card stat">
         <div class="label">磁盘容量</div>

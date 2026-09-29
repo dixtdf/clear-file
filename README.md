@@ -4,13 +4,13 @@
 
 - 后端：Go（标准库，零第三方依赖），单文件二进制，内嵌前端
 - 前端：Vue 3 + Vite + vue-router
-- 运行：Docker，只挂载 `/mnt`
+- 运行：Docker 或本机；宿主机目录按需挂载
 
 ```
 浏览器 (Vue 3)
       │  REST + SSE
       ▼
-Go 服务 ── /mnt（唯一可访问目录）
+Go 服务 ── 可访问根目录（默认容器内 `/`，可配置）
 ```
 
 ## 快速开始
@@ -39,18 +39,21 @@ $env:FILE_CLEANER_IMAGE="ghcr.io/dixtdf/clear-file:0.1.0"; docker compose up -d
 
 GHCR 的包默认是私有的，第一次拉之前先 `docker login ghcr.io -u <github-user> -p <PAT>`（或在 GitHub 的 Packages 设置里改成 public）。
 
-`docker-compose.yml` 已按需求写好：
+`docker-compose.yml` 默认不挂载宿主机目录。要管理宿主机文件，在服务下按需添加一个或多个挂载，例如：
 
 ```yaml
 volumes:
-  - /mnt:/mnt     # 只挂这一个目录，宿主机其他路径不可见
+  - /srv/media:/media
+  - /home/user/downloads:/downloads
 ```
+
+浏览器中可选择 `/media`、`/downloads` 或其他容器内可访问的目录。未配置挂载时只能看到容器自身的文件系统。也可设置 `FILE_CLEANER_ROOT=/media`，将浏览、扫描和删除限制在该目录下。
 
 ### 本地开发
 
 ```bash
-# 1) 后端（默认 :6888，根目录 /mnt）
-go run ./cmd/server -root /mnt -addr :6888 -verbose
+# 1) 后端（默认 :6888，根目录为当前系统的文件系统根）
+go run ./cmd/server -addr :6888 -verbose
 
 # Windows 上想试跑后端可以指向任意测试目录
 go run ./cmd/server -root D:\test -addr :6888
@@ -73,8 +76,8 @@ go build -o file-cleaner ./cmd/server
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `FILE_CLEANER_ADDR` | `:6888` | HTTP 监听地址 |
-| `FILE_CLEANER_ROOT` | `/mnt` | 唯一允许访问的目录树 |
-| `FILE_CLEANER_TRASH` | `false` | `true` 时删除改为移动到 `/mnt/.file-cleaner-trash/` |
+| `FILE_CLEANER_ROOT` | `/`（Linux/Docker） | 允许访问的根目录，可指定任意已存在目录 |
+| `FILE_CLEANER_TRASH` | `false` | `true` 时删除改为移动到根目录下的 `.file-cleaner-trash/` |
 | `FILE_CLEANER_MAX_RESULTS` | `500000` | 单次扫描在内存中保留的最大结果条数 |
 
 命令行参数 `-addr` / `-root` / `-verbose` 可覆盖环境变量。
@@ -101,7 +104,7 @@ go build -o file-cleaner ./cmd/server
 镜像里默认端口是 `6888`，二进制里的版本号由 `-ldflags` 注入（`/api/v1/system/info` 能看到）：
 
 ```bash
-docker run -d --name file-cleaner -p 6888:6888 -v /mnt:/mnt ghcr.io/dixtdf/clear-file:0.1.0
+docker run -d --name file-cleaner -p 6888:6888 -v /srv/media:/media ghcr.io/dixtdf/clear-file:0.1.0
 ```
 
 tag 由 release workflow 创建，本地不要重复推同名 tag；发版用的分支默认 `main`，若仓库默认分支是 `master`，触发时把 `branch` 输入改成 `master`。
@@ -116,11 +119,11 @@ tag 由 release workflow 创建，本地不要重复推同名 tag；发版用的
 
 ## 关键设计
 
-1. 浏览不递归：打开目录只 `lstat` 一层，绝不统计子目录大小，避免"打开 /mnt 就扫全盘"。
+1. 浏览不递归：打开目录只 `lstat` 一层，绝不统计子目录大小。
 2. 扫描与删除分离：扫描只产出结果，删除必须由用户勾选并在二次确认后执行。
 3. 流式遍历：目录遍历用 `filepath.WalkDir` 逐条回调，不把整棵树读进内存。重复文件扫描先用**两遍流式扫描**（第一遍只统计每种大小出现次数，第二遍只保留大小重复的文件），百万级文件也不会 OOM。
 4. 不跟随符号链接：`/a/b -> /a` 之类的环不会造成无限扫描，链接按普通项展示。
-5. 路径安全：所有 path 参数经 `filepath.Clean` + `filepath.Abs` + `filepath.Rel` 校验，并用 `EvalSymlinks` 二次确认最终路径仍在 `/mnt` 内；`/mnt/../../etc` 一律 403。
+5. 路径范围：所有 path 参数经 `filepath.Clean` + `filepath.Abs` + `filepath.Rel` 校验，并用 `EvalSymlinks` 二次确认最终路径仍在配置的根目录内。默认根目录为 `/`，若要限制范围请设置 `FILE_CLEANER_ROOT`。
 6. 删除安全：服务端二次校验——根目录不可删、扫描根目录不可删、`..` 不可作为目标。
 7. 后台任务队列：Go 内 `context.WithCancel` 任务，HTTP 请求从不被扫描阻塞。
 8. 大批量删除：前端把删除请求按 500 条一批切分，确认弹窗最多渲染 20 条路径；选择超过 2000 项时不再向服务器要预览（改用本地估算），避免一次几万条路径把请求体和 DOM 撑爆。服务端请求体上限 64 MiB，预览接口回显的路径也截断到 200 条。"全选结果"上限 20 万条（服务端单次扫描结果本身受 `FILE_CLEANER_MAX_RESULTS` 限制，默认 50 万）。

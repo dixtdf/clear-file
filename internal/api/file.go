@@ -42,6 +42,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 
 	opt := filesystem.ListOptions{
 		Path:      qs(r, "path", s.cfg.Root),
+		DirsOnly:  qbool(r, "dirsOnly", false),
 		Page:      qi(r, "page", 1),
 		PageSize:  qi(r, "pageSize", 200),
 		Sort:      qs(r, "sort", "name"),

@@ -41,16 +41,14 @@ LABEL org.opencontainers.image.title="file-cleaner" \
 RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -u 10001 cleaner
 
-ENV FILE_CLEANER_ROOT=/mnt \
+ENV FILE_CLEANER_ROOT=/ \
     FILE_CLEANER_ADDR=:6888 \
     TZ=Asia/Shanghai
 
 COPY --from=build /out/file-cleaner /usr/local/bin/file-cleaner
 
 EXPOSE 6888
-VOLUME ["/mnt"]
-
-# Run as root only because /mnt is often root-owned on NAS hosts; remove the
+# Run as root because NAS mounts are often root-owned; remove the
 # USER line or map ownership if your mount is writable by uid 10001.
 # USER cleaner
 

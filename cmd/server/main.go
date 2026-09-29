@@ -34,7 +34,7 @@ func main() {
 	cfg.Root = filesystem.CleanRoot(*root)
 
 	if fi, err := os.Stat(cfg.Root); err != nil || !fi.IsDir() {
-		log.Printf("warn: root %q is not a readable directory (mount it with -v /mnt:/mnt)", cfg.Root)
+		log.Printf("warn: root %q is not a readable directory (check the path and container mounts)", cfg.Root)
 	}
 
 	manager := task.NewManager(50)
