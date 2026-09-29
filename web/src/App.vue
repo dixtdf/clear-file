@@ -72,9 +72,9 @@ onMounted(async () => {
       <span class="muted">后台任务</span>
       <div v-for="t in running" :key="t.id" class="task">
         <span>{{ t.type }}</span>
-        <div class="mini"><span :style="{ width: (t.progress.percent >= 0 ? t.progress.percent : 30) + '%' }"></span></div>
+        <div class="mini" :class="{ unknown: t.progress.percent < 0 }"><span :style="{ width: (t.progress.percent >= 0 ? t.progress.percent : 30) + '%' }"></span></div>
         <span class="muted">
-          {{ formatBytes(t.progress.bytes) }} · {{ formatDuration(t.progress.elapsedMs) }}
+          {{ t.progress.percent < 0 ? '总进度未知 · ' : '' }}文件总大小 {{ formatBytes(t.progress.bytes) }} · {{ formatDuration(t.progress.elapsedMs) }}
         </span>
         <button class="btn sm ghost" @click="cancelTask(t.id)">取消</button>
       </div>

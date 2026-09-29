@@ -25,6 +25,10 @@ const chipClass = computed(() => {
   return 'chip primary'
 })
 const percent = computed(() => (p.value.percent >= 0 ? Math.min(100, p.value.percent) : -1))
+function formatRate(rate) {
+  if (rate >= 10) return formatNumber(Math.round(rate))
+  return Number(rate).toFixed(rate >= 1 ? 1 : 2)
+}
 </script>
 
 <template>
@@ -35,7 +39,7 @@ const percent = computed(() => (p.value.percent >= 0 ? Math.min(100, p.value.per
       <span class="muted small mono">{{ task.id.slice(0, 8) }}</span>
       <div class="grow"></div>
       <span v-if="status === 'running'" class="muted small">
-        文件 {{ formatNumber(p.files) }} · 目录 {{ formatNumber(p.dirs) }} · 已扫描 {{ formatBytes(p.bytes) }}
+        文件 {{ formatNumber(p.files) }} · 目录 {{ formatNumber(p.dirs) }} · 文件总大小 {{ formatBytes(p.bytes) }}
       </span>
       <button
         v-if="showCancel && (status === 'running' || status === 'pending')"
@@ -51,8 +55,12 @@ const percent = computed(() => (p.value.percent >= 0 ? Math.min(100, p.value.per
       </div>
       <div class="row" style="margin-top: 10px; font-size: 12.5px">
         <span class="muted">耗时 {{ formatDuration(p.elapsedMs) }}</span>
-        <span v-if="p.speed > 0" class="muted">速度 {{ formatBytes(p.speed) }}/s</span>
-        <span v-if="p.found > 0" class="muted">已发现 {{ formatNumber(p.found) }} 项</span>
+        <span v-if="status === 'running' && percent < 0" class="muted">总进度未知</span>
+        <span v-if="status === 'running' && p.phase" class="muted">{{ p.phase }}</span>
+        <span v-if="p.fileSpeed > 0" class="muted">平均处理 {{ formatRate(p.fileSpeed) }} 文件/秒</span>
+        <span v-if="p.readBytes > 0" class="muted">内容已读取 {{ formatBytes(p.readBytes) }} · 平均读取 {{ formatBytes(p.speed) }}/秒</span>
+        <span v-if="task.type === 'duplicate' && p.candidates > 0" class="muted">候选文件 {{ formatNumber(p.candidates) }}</span>
+        <span v-if="p.found > 0" class="muted">{{ task.type === 'duplicate' ? '重复组' : '已发现' }} {{ formatNumber(p.found) }}{{ task.type === 'duplicate' ? '' : ' 项' }}</span>
         <span v-if="task.error" class="chip danger">{{ task.error }}</span>
       </div>
       <div v-if="p.current" class="mono muted" style="margin-top: 6px; overflow: hidden; text-overflow: ellipsis">

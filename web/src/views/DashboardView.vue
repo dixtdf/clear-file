@@ -92,7 +92,7 @@ onMounted(async () => {
               <th>状态</th>
               <th>文件</th>
               <th>目录</th>
-              <th>已扫描</th>
+              <th>文件总大小</th>
               <th>耗时</th>
               <th>结果</th>
             </tr>

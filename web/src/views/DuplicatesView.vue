@@ -11,7 +11,7 @@ import { formatBytes, formatNumber } from '../utils/format'
 
 const modes = [
   { key: 'size', label: '仅大小一致', hint: '最快，准确度低，只作为候选' },
-  { key: 'fast', label: '快速校验', hint: '大小 + 头/中/尾 三段 Hash，准确度非常高（推荐）' },
+  { key: 'fast', label: '快速校验', hint: '小文件完整校验，大文件读取头/中/尾各 1 MiB（推荐）' },
   { key: 'full', label: '完整校验', hint: '整文件 Hash，准确度最高，速度较慢' }
 ]
 

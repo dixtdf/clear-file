@@ -687,6 +687,11 @@ table.data td.name {
   background: #4f8cff;
 }
 
+.taskbar .mini.unknown > span {
+  width: 30% !important;
+  animation: slide 1.2s ease-in-out infinite;
+}
+
 /* ---------- treemap ---------- */
 .treemap {
   position: relative;

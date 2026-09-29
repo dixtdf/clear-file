@@ -31,16 +31,20 @@ var ErrCanceled = errors.New("task canceled")
 
 // Progress is the live counter block exposed to the UI.
 type Progress struct {
-	Files   int64   `json:"files"`
-	Dirs    int64   `json:"dirs"`
-	Bytes   int64   `json:"bytes"`
-	Found   int64   `json:"found"`
-	Total   int64   `json:"total"`
-	Current string  `json:"current"`
-	Elapsed int64   `json:"elapsedMs"`
-	Speed   float64 `json:"speed"`   // bytes per second
-	Percent float64 `json:"percent"` // 0..100, -1 when unknown
-	Started int64   `json:"startedAt"`
+	Files      int64   `json:"files"`
+	Dirs       int64   `json:"dirs"`
+	Bytes      int64   `json:"bytes"`      // sum of file sizes seen in the directory walk
+	ReadBytes  int64   `json:"readBytes"`  // content bytes read for verification
+	Candidates int64   `json:"candidates"` // duplicate candidate files
+	Found      int64   `json:"found"`
+	Total      int64   `json:"total"`
+	Current    string  `json:"current"`
+	Phase      string  `json:"phase"`
+	Elapsed    int64   `json:"elapsedMs"`
+	Speed      float64 `json:"speed"`     // average content bytes read per second
+	FileSpeed  float64 `json:"fileSpeed"` // average unique files found per second
+	Percent    float64 `json:"percent"`   // 0..100, -1 when unknown
+	Started    int64   `json:"startedAt"`
 }
 
 // Event is one SSE payload.
@@ -254,8 +258,10 @@ func (t *Task) snapshotLocked() Snapshot {
 			end = time.Now()
 		}
 		p.Elapsed = end.Sub(t.startedAt).Milliseconds()
-		if p.Elapsed > 0 && p.Bytes > 0 {
-			p.Speed = float64(p.Bytes) / (float64(p.Elapsed) / 1000.0)
+		if p.Elapsed > 0 {
+			seconds := float64(p.Elapsed) / 1000.0
+			p.Speed = float64(p.ReadBytes) / seconds
+			p.FileSpeed = float64(p.Files) / seconds
 		}
 	}
 	if t.total > 0 {
@@ -263,6 +269,9 @@ func (t *Task) snapshotLocked() Snapshot {
 		if p.Percent > 100 {
 			p.Percent = 100
 		}
+	}
+	if t.status == StatusCompleted {
+		p.Percent = 100
 	}
 	return Snapshot{
 		ID:          t.ID,
@@ -340,6 +349,7 @@ func (t *Task) SetSummary(v any) {
 func (t *Task) SetTotal(n int64) {
 	t.mu.Lock()
 	t.total = n
+	t.progress.Total = n
 	t.mu.Unlock()
 	t.publish("progress", t.Snapshot())
 }
@@ -353,8 +363,17 @@ func (t *Task) AddDirs(n int64) { t.bump(func(p *Progress) { p.Dirs += n }) }
 // AddBytes increments the scanned byte counter.
 func (t *Task) AddBytes(n int64) { t.bump(func(p *Progress) { p.Bytes += n }) }
 
+// AddReadBytes records bytes actually read from file content during verification.
+func (t *Task) AddReadBytes(n int64) { t.bump(func(p *Progress) { p.ReadBytes += n }) }
+
+// IncCandidates counts files that share a size with at least one other file.
+func (t *Task) IncCandidates(n int64) { t.bump(func(p *Progress) { p.Candidates += n }) }
+
 // IncFound increments the "results found so far" counter.
 func (t *Task) IncFound(n int64) { t.bump(func(p *Progress) { p.Found += n }) }
+
+// SetPhase names the current stage of a multi-pass scan.
+func (t *Task) SetPhase(phase string) { t.bump(func(p *Progress) { p.Phase = phase }) }
 
 // SetCurrent records the path currently being processed.
 func (t *Task) SetCurrent(path string) {

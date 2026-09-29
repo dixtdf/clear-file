@@ -14,7 +14,9 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"file-cleaner/internal/filesystem"
@@ -187,7 +189,26 @@ func Scan(ctx context.Context, root string, p Params, t *task.Task) (*Result, er
 		if err != nil {
 			return nil, err
 		}
-		dirs = append(dirs, d)
+		if resolved, err := filepath.EvalSymlinks(d); err == nil {
+			d = resolved
+		}
+		covered := false
+		for _, existing := range dirs {
+			if directoryContains(existing, d) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		kept := dirs[:0]
+		for _, existing := range dirs {
+			if !directoryContains(d, existing) {
+				kept = append(kept, existing)
+			}
+		}
+		dirs = append(kept, d)
 	}
 	if len(dirs) == 0 {
 		return nil, errors.New("至少需要一个扫描目录")
@@ -208,9 +229,10 @@ func Scan(ctx context.Context, root string, p Params, t *task.Task) (*Result, er
 	res := &Result{Groups: make([]Group, 0, 64), mode: string(p.Mode), scanDirs: dirs}
 
 	// ---- pass A: count files per size (only the counter map is kept) ----
+	t.SetPhase("统计文件")
 	counts := make(map[int64]int64, 1024)
 	for _, d := range dirs {
-		if err := walkFiles(ctx, d, t, func(path string, info fs.FileInfo) error {
+		if err := walkFiles(ctx, d, t, true, func(path string, info fs.FileInfo) error {
 			if info.Size() < p.MinSize {
 				return nil
 			}
@@ -222,6 +244,7 @@ func Scan(ctx context.Context, root string, p Params, t *task.Task) (*Result, er
 	}
 
 	// ---- pass B: keep only the files whose size is shared ----
+	t.SetPhase("筛选候选文件")
 	candidates := make(map[int64][]File, len(counts)/4+1)
 	total := 0
 	truncated := false
@@ -229,7 +252,7 @@ func Scan(ctx context.Context, root string, p Params, t *task.Task) (*Result, er
 		if truncated {
 			break
 		}
-		if err := walkFiles(ctx, d, t, func(path string, info fs.FileInfo) error {
+		if err := walkFiles(ctx, d, t, false, func(path string, info fs.FileInfo) error {
 			size := info.Size()
 			if counts[size] < 2 {
 				return nil
@@ -245,7 +268,7 @@ func Scan(ctx context.Context, root string, p Params, t *task.Task) (*Result, er
 				MTime: info.ModTime().UnixMilli(),
 			})
 			total++
-			t.IncFound(1)
+			t.IncCandidates(1)
 			return nil
 		}); err != nil {
 			return nil, err
@@ -255,6 +278,11 @@ func Scan(ctx context.Context, root string, p Params, t *task.Task) (*Result, er
 	res.Truncated = truncated
 
 	// ---- stage 3: hash verification ----
+	if p.Mode == ModeSize {
+		t.SetPhase("汇总结果")
+	} else {
+		t.SetPhase("校验文件内容")
+	}
 	sizes := make([]int64, 0, len(candidates))
 	for size := range candidates {
 		sizes = append(sizes, size)
@@ -329,9 +357,14 @@ func Scan(ctx context.Context, root string, p Params, t *task.Task) (*Result, er
 	return res, nil
 }
 
+func directoryContains(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
+}
+
 // walkFiles streams every regular file below dir (symlinks are never
 // followed) and reports progress on the shared task.
-func walkFiles(ctx context.Context, dir string, t *task.Task, fn func(path string, info fs.FileInfo) error) error {
+func walkFiles(ctx context.Context, dir string, t *task.Task, countProgress bool, fn func(path string, info fs.FileInfo) error) error {
 	err := filesystem.Walk(ctx, dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -340,7 +373,9 @@ func walkFiles(ctx context.Context, dir string, t *task.Task, fn func(path strin
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			t.AddDirs(1)
+			if countProgress {
+				t.AddDirs(1)
+			}
 			t.SetCurrent(path)
 			return nil
 		}
@@ -351,8 +386,13 @@ func walkFiles(ctx context.Context, dir string, t *task.Task, fn func(path strin
 		if err != nil {
 			return nil
 		}
-		t.AddFiles(1)
-		t.AddBytes(info.Size())
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if countProgress {
+			t.AddFiles(1)
+			t.AddBytes(info.Size())
+		}
 		return fn(path, info)
 	})
 	if err != nil && ctx.Err() == nil && err != fs.SkipAll {
@@ -391,11 +431,15 @@ func groupBy(ctx context.Context, files []File, t *task.Task, mode Mode) (map[st
 					continue
 				}
 				var sig string
+				var readBytes int64
 				var err error
 				if mode == ModeFull {
-					sig, err = FullSignature(ctx, f.Path)
+					sig, _, err = fullSignature(ctx, f.Path, t.AddReadBytes)
 				} else {
-					sig, err = ProbeSignature(ctx, f.Path, f.Size)
+					sig, readBytes, err = probeSignature(ctx, f.Path, f.Size)
+					if readBytes > 0 {
+						t.AddReadBytes(readBytes)
+					}
 				}
 				out <- item{file: f, sig: sig, err: err}
 			}
